@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <concepts>
 #include <iostream>
+#include <coroutine>
 
 template <typename T, typename... Ts>
 concept InTypes = (std::same_as<T, Ts> || ...);
@@ -33,6 +34,7 @@ concept GlobalCoAwaitAwaitable = requires(T t) {
 template <typename T>
 concept Awaitable = Awaiter<T> || MemberCoAwaitAwaitable<T> || GlobalCoAwaitAwaitable<T>;
 
+
 template <typename T> requires Awaitable<T>
 static auto get_awaiter(T&& t) {
     if constexpr (Awaiter<T>) {
@@ -43,6 +45,7 @@ static auto get_awaiter(T&& t) {
         return operator co_await(std::forward<T>(t));
     }
 }
+
 
 template <Awaitable T>
 struct AwaitableTraits {
