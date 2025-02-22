@@ -31,7 +31,7 @@ concept GlobalCoAwaitAwaitable = requires(T t) {
 template <typename T>
 concept Awaitable = Awaiter<T> || MemberCoAwaitAwaitable<T> || GlobalCoAwaitAwaitable<T>;
 
-template <typename T> requires Awaitable<T>    // 约束写法1
+template <typename T> requires Awaitable<T>    // constraint writing method 1
 static auto get_awaiter(T&& t) {
     if constexpr (Awaiter<T>) {
         return std::forward<T>(t);
@@ -42,7 +42,7 @@ static auto get_awaiter(T&& t) {
     }
 }
 
-template <Awaitable T>     // 约束写法2
+template <Awaitable T>     // constraint writing method 2
 struct AwaitableTraits {
     using AwaiterType = decltype(get_awaiter(std::declval<T>()));
     using ReturnType  = decltype(std::declval<AwaiterType>().await_resume());
