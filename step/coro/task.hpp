@@ -145,7 +145,8 @@ public:
     struct CurrentAwaiter {
         auto await_ready() { return false; }
 
-        auto await_suspend(std::coroutine_handle<> last_handle) {
+        // 这里返回值不能写auto，必须显式写成std::coroutine_handle<>，否则会认为Task不满足Awaitable约束
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<> last_handle) {
             m_current_handle.promise().continuation(last_handle);
             return m_current_handle;
         }
