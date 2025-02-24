@@ -177,10 +177,11 @@ public:
         coroutine_handle::from_promise(*this).resume();
     }
 
-    void result()  {
+    auto result() -> std::monostate {
         if (m_exception_ptr) {
             std::rethrow_exception(m_exception_ptr);
         }
+        return {};
     }
 
     void return_void() {}
@@ -199,7 +200,7 @@ public:
     using promise_type = WhenAllPromise<T>;
     using coroutine_handle = std::coroutine_handle<promise_type>;
 
-    using ResultType =  T;
+    using ResultType = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
     WhenAllTask(coroutine_handle handle) :m_coroutine(handle) {}
 
@@ -261,16 +262,22 @@ int main() {
         co_return "this is string";
     };
 
+    auto task3 = []() -> Task<> {
+        std::cout << "task3线程 " << std::this_thread::get_id() << "\n";
+        co_return;
+    };
 
-    auto task3 = [=]() -> Task<int> {
-        std::cout << "task3线程 " << std::this_thread::get_id() << " 等待中\n";
-        auto [x, y] = co_await when_all(task1(), task2());
-        std::cout << "task3: 等待完成\n";
+    auto task4 = [=]() -> Task<int> {
+        std::cout << "task4线程 " << std::this_thread::get_id() << " 等待中\n";
+        auto [x, y, z] = co_await when_all(task1(), task2(), task3());
+        static_assert(std::is_same_v<decltype(z), std::monostate>);
+
+        std::cout << "task4: 等待完成\n";
         std::cout << "task1 result: " << x << " " << "task2 result: " << y << "\n";
         co_return 3;
     };
 
-    auto result = sync_wait(task3());
-    std::cout << "task3 result: " << result << "\n";
+    auto result = sync_wait(task4());
+    std::cout << "task4 result: " << result << "\n";
     return 0;
 }
