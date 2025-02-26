@@ -9,7 +9,7 @@
 #include <string>
 #include <cstring>
 
-enum class Domian {
+enum class Domain {
     IpV4 = AF_INET,
     IpV6 = AF_INET6,
 };
@@ -17,11 +17,11 @@ enum class Domian {
 static std::string Domain_Ipv4{"ipv4"};
 static std::string Domain_Ipv6{"ipv6"};
 
-const std::string& to_string(Domian domain) {
+const std::string& to_string(Domain domain) {
     switch (domain) {
-        case Domian::IpV4:
+        case Domain::IpV4:
             return Domain_Ipv4;
-        case Domian::IpV6:
+        case Domain::IpV6:
             return Domain_Ipv6;
     }
     throw std::runtime_error {"to_string(Domain) unknown domain"};
@@ -34,8 +34,8 @@ public:
     static constexpr size_t ipv6_len {16};
 
     IpAddress() = default;
-    IpAddress(std::span<const uint8_t> binary_address, Domian domain = Domian::IpV4) : m_domain(domain) {
-        if (m_domain == Domian::IpV4 && binary_address.size() > ipv4_len) {
+    IpAddress(std::span<const uint8_t> binary_address, Domain domain = Domain::IpV4) : m_domain(domain) {
+        if (m_domain == Domain::IpV4 && binary_address.size() > ipv4_len) {
             throw std::runtime_error{"coro::net::IpAddress provided binary ip address is too long"};
         } else if (binary_address.size() > ipv6_len) {
             throw std::runtime_error{"coro::net::IpAddress provided binary ip address is too long"};
@@ -43,11 +43,11 @@ public:
         std::copy(binary_address.begin(), binary_address.end(), m_data.begin());
     }
 
-    Domian domain() const {
+    Domain domain() const {
         return m_domain;
     }
 
-    static auto from_string(const std::string& address, Domian domain = Domian::IpV4) {
+    static auto from_string(const std::string& address, Domain domain = Domain::IpV4) {
         IpAddress addr {};
         addr.m_domain = domain;
 
@@ -60,7 +60,7 @@ public:
 
     std::string to_string() const {
         std::string output;
-        if (m_domain == Domian::IpV4) {
+        if (m_domain == Domain::IpV4) {
             output.resize(INET_ADDRSTRLEN, '\0');
         } else {
             output.resize(INET6_ADDRSTRLEN, '\0');
@@ -79,7 +79,7 @@ public:
 
 private:
     std::array<uint8_t, ipv6_len> m_data{};
-    Domian m_domain {Domian::IpV4};
+    Domain m_domain {Domain::IpV4};
 };
 
 int main() {
