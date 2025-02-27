@@ -101,7 +101,7 @@ private:
     int m_fd {-1};
 };
 
-Socket make_socket(const Socket::Options& options) {
+inline Socket make_socket(const Socket::Options& options) {
     Socket sock{::socket(AF_INET, static_cast<uint16_t>(options.type), 0)};
     if (sock.fd() < 0) {
         throw std::runtime_error{"failed to create socket."};
@@ -116,7 +116,7 @@ Socket make_socket(const Socket::Options& options) {
     return sock;
 }
 
-Socket make_accept_socket(const Socket::Options& options, const IpAddress& address, uint16_t port, int backlog = 128) {
+inline Socket make_accept_socket(const Socket::Options& options, const IpAddress& address, uint16_t port, int backlog = 128) {
     Socket sock = make_socket(options);
 
     int opt {1};
