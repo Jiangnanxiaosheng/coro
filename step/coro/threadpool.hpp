@@ -72,6 +72,18 @@ public:
         return m_size.load(std::memory_order_acquire);
     }
 
+    void shutdown() noexcept {
+        if (m_stop.exchange(true, std::memory_order_acq_rel) == false) {
+            m_cv.notify_all();
+
+            for (auto& thread : m_threads) {
+                if (thread.joinable()) {
+                    thread.join();
+                }
+            }
+        }
+    }
+
 
 private:
     void executor() {
@@ -107,19 +119,7 @@ private:
         }
 
     }
-
-    void shutdown() noexcept {
-        if (m_stop.exchange(true, std::memory_order_acq_rel) == false) {
-            m_cv.notify_all();
-
-            for (auto& thread : m_threads) {
-                if (thread.joinable()) {
-                    thread.join();
-                }
-            }
-        }
-    }
-
+    
     void scheduler_impl(std::coroutine_handle<> handle) noexcept {
         if (handle == nullptr || handle.done()) {
             return;
