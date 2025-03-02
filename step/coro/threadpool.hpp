@@ -34,7 +34,7 @@ public:
         explicit Awaiter(ThreadPool& p) : pool(p) {}
         auto await_ready()  noexcept { return false; }
         // 在协程内部调用co_await tp.schedule(), 此处会将当前协程，即 awaiting_coroutine 放入ThreadPool的工作队列中
-        auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept {
+        void await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept {
             handle = awaiting_coroutine;
             pool.scheduler_impl(handle);
         }
@@ -60,6 +60,30 @@ public:
     // 允许当前任务主动让出执行权，重新排队到末尾，以便其他任务有机会执行，有助于避免长任务独占线程
     Awaiter yield() {
         return schedule();
+    }
+
+    // 供外部调用，把任务放入线程池运行
+    template<typename T>
+    Task<T> schedule(Task<T> task) {
+        co_await schedule();
+        co_return co_await task;
+    }
+
+    // 供外部调用，恢复某个准备恢复的协程
+    bool resume(std::coroutine_handle<> handle) {
+        if (handle == nullptr || handle.done()) {
+            return false;
+        }
+
+        m_size.fetch_add(1, std::memory_order_release);
+        if (m_stop.load(std::memory_order_acquire)) {
+            m_size.fetch_sub(1, std::memory_order_release);
+            return false;
+        }
+
+        scheduler_impl(handle);
+
+        return true;
     }
 
     // 返回线程池的大小
@@ -119,7 +143,7 @@ private:
         }
 
     }
-    
+
     void scheduler_impl(std::coroutine_handle<> handle) noexcept {
         if (handle == nullptr || handle.done()) {
             return;
