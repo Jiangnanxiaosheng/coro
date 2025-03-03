@@ -9,13 +9,15 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <format>
 #include <chrono>
-
+#include <cassert>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
 #include <sys/eventfd.h>
 
 #include "coro/task.hpp"
+#include "coro/when_all.hpp"
 #include "coro/net/poll.hpp"
 #include "coro/threadpool.hpp"
 #include "coro/net/socket.hpp"
@@ -23,6 +25,17 @@
 #include "coro/sync_wait.hpp"
 
 using namespace std::chrono_literals;
+
+void printThradId(const std::string& str) {
+    auto thread_id = std::this_thread::get_id();
+    // 将 thread_id 转换为字符串
+    std::ostringstream oss;
+    oss << thread_id;
+    std::string thread_id_str = oss.str();
+    // 使用 std::format 打印
+    std::cout << std::format("ThreadID [{}] : {} \n", thread_id_str, str);
+}
+
 
 
 class IoScheduler {
@@ -40,13 +53,20 @@ public:
     };
 
 private:
-    IoScheduler(Options opts) : m_opts(opts), m_epoll_fd(epoll_create1(1)),
+    IoScheduler(Options opts) : m_opts(opts), m_epoll_fd(epoll_create1(EPOLL_CLOEXEC)),
                     m_shutdown_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)),
                     m_timer_fd(timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)),
-                    m_schedule_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {}
+                    m_schedule_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {
+
+        if (m_epoll_fd == -1) {
+            perror("epoll_create1 failed");
+            throw std::runtime_error{"epoll_fd can't not be -1"};
+        }
+    }
 
 public:
     static std::shared_ptr<IoScheduler> make_shared(Options opts) {
+        printThradId("make_shared()");
         std::shared_ptr<IoScheduler> s = std::shared_ptr<IoScheduler>(new IoScheduler(std::move(opts)));
         if (s->m_opts.execution_strategy == ExecutionStrategy::On_ThreadPool) {
             s->m_thread_pool = std::make_unique<ThreadPool>(s->m_opts.threads_count);
@@ -104,8 +124,10 @@ public:
     }
 
     void run() {
+        printThradId("run()");
         while (!m_shutdown.load(std::memory_order_acquire) || size() > 0) {
             auto event_count = epoll_wait(m_epoll_fd, m_events.data(), m_max_events, m_default_timeout.count());
+            //auto event_count = epoll_wait(m_epoll_fd, m_events.data(), m_max_events, -1);
             if (event_count > 0) {
                 for (int i = 0; i < event_count; ++i) {
                     epoll_event& event = m_events[i];
@@ -195,13 +217,17 @@ public:
             } else {
                 m_scheduler.m_thread_pool->resume(awaiting_handle);
             }
+            printThradId("ScheduleAwaiter::await_suspend()");
         }
         void await_resume() noexcept {}
 
         IoScheduler& m_scheduler;
     };
 
-    ScheduleAwaiter schedule () { return ScheduleAwaiter{*this}; }
+    ScheduleAwaiter schedule () {
+        printThradId("co_await schedule()");
+        return ScheduleAwaiter{*this};
+    }
     Task<> schedule_after(std::chrono::milliseconds amount) {
         if (amount <= 0ms) {
             co_await schedule();
@@ -267,6 +293,7 @@ public:
 
 
     void on_timeout() {
+        printThradId("on_timeout()");
         std::vector<PollInfo*> poll_infos {};
         auto now = clock::now();
         {
@@ -310,6 +337,7 @@ public:
     }
 
     void on_schedule() {
+        printThradId("on_schedule()");
         std::vector<std::coroutine_handle<>> tasks{};
         {
             std::scoped_lock lk{m_tasks_mutex};
@@ -445,16 +473,60 @@ private:
     }
 };
 
-int main() {
-    std::cout << "main所在的线程: " << std::this_thread::get_id() << "\n";
-    auto s = IoScheduler::make_shared(IoScheduler::Options{});
+inline constexpr IoScheduler::ExecutionStrategy iosched_exec_inline = IoScheduler::ExecutionStrategy::On_ThreadInline;
+inline constexpr IoScheduler::ExecutionStrategy iosched_exec_pool = IoScheduler::ExecutionStrategy::On_ThreadPool;
+
+void Test1() {
+    auto s = IoScheduler::make_shared(IoScheduler::Options{.execution_strategy = iosched_exec_pool});
 
     auto make_task = [&s]() -> Task<int> {
         co_await s->schedule();
-        std::cout << "协程所在的线程: " << std::this_thread::get_id() << "\n";
+        printThradId("make_task()");
         co_return 42;
     };
-
     auto value = sync_wait(make_task());
-    std::cout << std::boolalpha << (value == 42);
+    assert(value == 42);
+}
+
+void Test2() {
+    auto s = IoScheduler::make_shared(IoScheduler::Options{.execution_strategy = iosched_exec_pool});
+
+    auto efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    auto make_poll_read_task = [&s](int efd) -> Task<> {
+        co_await s->schedule();
+        auto status = co_await s->poll(efd, PollOp::Read, 50ms);
+        assert(status == PollStatus::Event);
+        printThradId("make_poll_read_task()");
+    };
+    auto make_poll_write_task = [&s](int efd) -> Task<> {
+        co_await s->schedule();
+        eventfd_t val{1};
+        eventfd_write(efd, val);
+        printThradId("make_poll_read_task()");
+
+        co_return;
+    };
+    sync_wait(when_all(make_poll_read_task(efd), make_poll_write_task(efd)));
+}
+
+void Test3() {
+    auto s = IoScheduler::make_shared(IoScheduler::Options{.execution_strategy = iosched_exec_pool});
+
+    auto efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    auto make_poll_read_task = [&s](int efd) -> Task<> {
+        co_await s->schedule();
+        auto status = co_await s->poll(efd, PollOp::Read, 50ms);
+        assert(status == PollStatus::Timeout);
+        printThradId("make_poll_read_task()");
+    };
+
+    sync_wait(make_poll_read_task(efd));
+}
+
+int main() {
+    printThradId("main()");
+
+    Test3();
+
+    return 0;
 }
