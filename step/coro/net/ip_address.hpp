@@ -13,32 +13,35 @@
 #include <cstring>
 #include <stdexcept>
 
-
 class IpAddress {
 public:
     static constexpr size_t ipv4_len {4};
 
     IpAddress() = default;
+
+    IpAddress(uint8_t a, uint8_t b, uint8_t c, uint8_t d) : m_data{a, b, c, d} {}
+
     IpAddress(std::span<const uint8_t> binary_address) {
         if (binary_address.size() > ipv4_len) {
-            throw std::runtime_error{"coro::net::IpAddress provided binary ipv4 address is too long"};
+            throw std::runtime_error{"coro::net::IpAddress provided binary ip address is too long"};
         }
         std::copy(binary_address.begin(), binary_address.end(), m_data.begin());
     }
 
 
-    static auto from_string(const std::string& ip) {
+    static auto from_string(const std::string& address) {
         IpAddress addr {};
 
-        auto success = inet_pton(AF_INET, ip.data(), addr.m_data.data());
+        auto success = inet_pton(AF_INET, address.data(), addr.m_data.data());
         if (success != 1) {
-            throw std::runtime_error {"coro::net::IpAddress failed to convert from string"};
+            throw std::runtime_error {"coro::net::IpAdress faild to convert from string"};
         }
         return addr;
     }
 
     std::string to_string() const {
         std::string output;
+
         output.resize(INET_ADDRSTRLEN, '\0');
 
         auto success = inet_ntop(AF_INET, m_data.data(), output.data(), output.length());
@@ -50,10 +53,6 @@ public:
         }
 
         return output;
-    }
-
-    std::span<const uint8_t> data() const {
-        return std::span<const uint8_t>{m_data.data(), ipv4_len};
     }
 
 private:
