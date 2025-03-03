@@ -96,7 +96,7 @@ private:
 };
 
 
-inline Socket make_nonblock_socket(Socket::Type type) {
+inline Socket make_nonblock_socket(Socket::Type type = Socket::Type::Tcp) {
     Socket sock{::socket(AF_INET, static_cast<uint16_t>(type) | SOCK_NONBLOCK, 0)};
     if (sock.fd() < 0) {
         throw std::runtime_error{"failed to create nonblock socket."};
