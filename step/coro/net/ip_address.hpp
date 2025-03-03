@@ -28,6 +28,9 @@ public:
         std::copy(binary_address.begin(), binary_address.end(), m_data.begin());
     }
 
+    std::span<const uint8_t> data() {
+        return m_data;
+    }
 
     static auto from_string(const std::string& address) {
         IpAddress addr {};
