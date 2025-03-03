@@ -42,7 +42,7 @@ public:
     };
 
 private:
-    IoScheduler(Options opts) : m_opts(opts), m_epoll_fd(epoll_create1(1)),
+    IoScheduler(Options opts) : m_opts(opts), m_epoll_fd(epoll_create1(EPOLL_CLOEXEC)),
                                 m_shutdown_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)),
                                 m_timer_fd(timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)),
                                 m_schedule_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {}
