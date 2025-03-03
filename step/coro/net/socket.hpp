@@ -18,14 +18,8 @@
 class Socket {
 public:
     enum class Type : uint16_t {
-        Udp = SOCK_DGRAM,
         Tcp = SOCK_STREAM,
-    };
-    enum class Blocking { Yes, No, };
-
-    struct Options {
-        Type type {Type::Tcp};
-        Blocking blocking {Blocking::Yes};
+        Udp = SOCK_DGRAM,
     };
 
     Socket() = default;
@@ -52,7 +46,7 @@ public:
     ~Socket() { close(); }
 
 public:
-    bool set_blocking(Blocking blocking) {
+    bool set_blocking(bool blocking) {
         if (m_fd < 0) {
             return false;
         }
@@ -62,7 +56,7 @@ public:
             return false;
         }
 
-        flags = (blocking == Blocking::Yes) ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
+        flags = (blocking) ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
 
         return (fcntl(m_fd, F_SETFL, flags) == 0);
     }
@@ -101,23 +95,18 @@ private:
     int m_fd {-1};
 };
 
-inline Socket make_socket(const Socket::Options& options) {
-    Socket sock{::socket(AF_INET, static_cast<uint16_t>(options.type), 0)};
-    if (sock.fd() < 0) {
-        throw std::runtime_error{"failed to create socket."};
-    }
 
-    if (options.blocking == Socket::Blocking::No) {
-        if (sock.set_blocking(Socket::Blocking::No) == false) {
-            throw std::runtime_error{"failed to set socket to non-blocking mode."};
-        }
+inline Socket make_nonblock_socket(Socket::Type type) {
+    Socket sock{::socket(AF_INET, static_cast<uint16_t>(type) | SOCK_NONBLOCK, 0)};
+    if (sock.fd() < 0) {
+        throw std::runtime_error{"failed to create nonblock socket."};
     }
 
     return sock;
 }
 
-inline Socket make_accept_socket(const Socket::Options& options, const IpAddress& address, uint16_t port, int backlog = 128) {
-    Socket sock = make_socket(options);
+inline Socket make_accept_socket(const IpAddress& address, uint16_t port, int backlog = 128, Socket::Type type = Socket::Type::Tcp) {
+    Socket sock = make_nonblock_socket(type);
 
     int opt {1};
     if (setsockopt(sock.fd(), SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
@@ -133,7 +122,7 @@ inline Socket make_accept_socket(const Socket::Options& options, const IpAddress
         throw std::runtime_error{"failed to bind"};
     }
 
-    if (options.type  == Socket::Type::Tcp) {
+    if (type  == Socket::Type::Tcp) {
         if (listen(sock.fd(), backlog) < 0) {
             throw std::runtime_error{"failed to listen"};
         }
@@ -141,6 +130,7 @@ inline Socket make_accept_socket(const Socket::Options& options, const IpAddress
 
     return sock;
 }
+
 
 
 
