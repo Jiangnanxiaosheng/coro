@@ -28,7 +28,7 @@ public:
         std::copy(binary_address.begin(), binary_address.end(), m_data.begin());
     }
 
-    std::span<const uint8_t> data() {
+    std::span<const uint8_t> data() const {
         return m_data;
     }
 
