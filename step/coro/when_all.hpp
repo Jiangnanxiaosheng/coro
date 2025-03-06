@@ -28,7 +28,7 @@ public:
     // 尝试等待，设置待处理协程句柄
     auto try_await(std::coroutine_handle<> awaiting_handle) {
         m_awaiting_handle = awaiting_handle;
-        return m_count.fetch_sub(1, std::memory_order_acq_rel) > 1;
+         return m_count.fetch_sub(1) > 1;
     }
 
     // 当一个任务完成时通知等待协程
@@ -99,6 +99,54 @@ private:
 
     WhenAllLatch m_latch;
     std::tuple<T...> m_tasks;
+};
+
+
+template <typename Container>
+class WhenAllAwaitable {
+public:
+    WhenAllAwaitable(Container&& tasks) : m_latch(std::size(tasks)), m_tasks(std::forward<Container>(tasks)) {}
+    WhenAllAwaitable(WhenAllAwaitable&& other) : m_latch(std::move(other.m_latch)), m_tasks(std::move(other.m_tasks)) {}
+    WhenAllAwaitable& operator=(WhenAllAwaitable&&) = delete;
+
+    auto operator co_await() {
+        struct Awaiter {
+            Awaiter(WhenAllAwaitable& awaitable) : m_awaitable(awaitable) {}
+
+            auto await_ready() noexcept { return m_awaitable.is_ready(); }
+            auto await_suspend(std::coroutine_handle<> handle) noexcept {
+                return m_awaitable.try_await(handle);
+            }
+            auto await_resume() -> std::vector<typename Container::value_type::ResultType> {
+                std::vector<typename Container::value_type::ResultType> results;
+                for (auto& task : m_awaitable.m_tasks) {
+                    results.emplace_back(task.result());
+
+                }
+                return results;
+            }
+
+            WhenAllAwaitable& m_awaitable;
+        };
+
+        return Awaiter{*this};
+    }
+
+private:
+    // 判断是否已完成所有任务
+    bool is_ready() noexcept {
+        return m_latch.is_ready();
+    }
+
+    auto try_await(std::coroutine_handle<> awaiting_handle) noexcept {
+        for (auto& task : m_tasks) {
+            task.start(m_latch);
+        }
+        return m_latch.try_await(awaiting_handle); // 将主协程句柄传入latch中
+    }
+
+    WhenAllLatch m_latch;
+    Container m_tasks;
 };
 
 template <typename T>
@@ -237,7 +285,7 @@ private:
 
 
 template <Awaitable A, typename T = typename AwaitableTraits<A&&>::ReturnType>
-    static auto make_when_all_task(A a) -> WhenAllTask<T> {
+static auto make_when_all_task(A a) -> WhenAllTask<T> {
     if constexpr (std::is_void_v<T>) {
         co_await static_cast<A&&>(a);
         co_return;
@@ -247,9 +295,23 @@ template <Awaitable A, typename T = typename AwaitableTraits<A&&>::ReturnType>
 }
 
 template <Awaitable... A>
-    auto when_all(A... a) {
+auto when_all(A... a) {
     return WhenAllAwaitable<std::tuple<WhenAllTask<typename AwaitableTraits<A>::ReturnType>...>>(
             std::make_tuple(make_when_all_task(std::move(a))...));
 }
+
+template <Awaitable A, typename  T = typename AwaitableTraits<A>::ReturnType>
+auto when_all(std::vector<A> awaitableVec) -> WhenAllAwaitable<std::vector<WhenAllTask<T>>> {
+    std::vector<WhenAllTask<T>> tasks;
+
+    tasks.reserve(std::size(awaitableVec));
+
+    for (auto&& awaitable : awaitableVec) {
+        tasks.emplace_back(make_when_all_task(std::move(awaitable)));
+    }
+
+    return WhenAllAwaitable(std::move(tasks));
+}
+
 
 #endif //CORO_WHEN_ALL_HPP
