@@ -25,7 +25,34 @@
 #include "../task.hpp"
 #include "../threadpool.hpp"
 
+#include "../task_self_deleting.hpp"
+
 using namespace std::chrono_literals;
+
+#include <iostream>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+
+
+std::string strNow() {
+    auto now = std::chrono::system_clock::now(); std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+
+// 获取当前时区的结构体
+    std::tm now_tm = *std::localtime(&now_c);
+
+// 使用ostringstream来构建格式化的时间字符串
+    std::ostringstream oss;
+    oss << std::put_time(&now_tm, "%Y-%m-%d %H:%M:%S");
+
+// 获取毫秒部分
+    auto duration = now.time_since_epoch();
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration) % 1000;
+    oss << "." << std::setfill('0') << std::setw(3) << milliseconds.count();
+
+    return oss.str();
+}
+
 
 class IoScheduler {
 public:
@@ -50,7 +77,7 @@ private:
 public:
     static std::shared_ptr<IoScheduler> make_shared(Options opts) {
         std::shared_ptr<IoScheduler> s = std::shared_ptr<IoScheduler>(new IoScheduler(std::move(opts)));
-        if (s->m_opts.execution_strategy == ExecutionStrategy::On_ThreadPool) {
+        if (opts.execution_strategy == ExecutionStrategy::On_ThreadPool) {
             s->m_thread_pool = std::make_unique<ThreadPool>(s->m_opts.threads_count);
         }
 
@@ -100,6 +127,10 @@ public:
 public:
     void shutdown() {
         if (!m_shutdown.exchange(true, std::memory_order_acq_rel)) {
+            if (m_thread_pool != nullptr) {
+                m_thread_pool->shutdown();
+            }
+
             uint64_t value{1};
             eventfd_write(m_shutdown_fd, value);
         }
@@ -107,7 +138,9 @@ public:
 
     void run() {
         while (!m_shutdown.load(std::memory_order_acquire) || size() > 0) {
-            auto event_count = epoll_wait(m_epoll_fd, m_events.data(), m_max_events, m_default_timeout.count());
+            std::cout << "__epoll_wait...\n";
+            auto event_count = epoll_wait(m_epoll_fd, m_events.data(), m_max_events, -1);
+            std::cout << "__epoll_wait 返回\n";
             if (event_count > 0) {
                 for (int i = 0; i < event_count; ++i) {
                     epoll_event& event = m_events[i];
@@ -116,6 +149,7 @@ public:
                     if (handle_ptr == m_timer_ptr) {
                         on_timeout();
                     } else if (handle_ptr == m_schedule_ptr) {
+                        std::cout << "__schedule 任务\n";
                         on_schedule();
                     } else if (handle_ptr == m_shutdown_ptr) [[unlikely]] {
                         eventfd_t val{0};
@@ -123,6 +157,7 @@ public:
 
                         // 处理io事件
                     } else {
+                        std::cout << "处理普通任务\n";
                         auto* pi = static_cast<PollInfo*>(handle_ptr);
                         if (!pi->m_processed) {
                             std::atomic_thread_fence(std::memory_order::acquire);
@@ -147,23 +182,47 @@ public:
 
                             m_tasks.emplace_back(pi->m_awaiting_handle);
                         }
+                        std::cout << "普通任务处理完\n";
                     }
                 }
             }
-
+            std::cout << "继续逻辑\n";
+            std::cout << "m_tasks :" << m_tasks.size() << '\n';
+//            if (!m_tasks.empty()) {
+//                if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
+//                    for (auto& handle : m_tasks) {
+//                        handle.resume();
+//                    }
+//                } else {
+//                    // m_thread_pool->resume(m_tasks);
+//                    for (auto& handle : m_tasks) {
+//                        m_thread_pool->resume(handle);
+//                    }
+//                }
+//
+//                m_tasks.clear();
+//                std::cout << "清空了m_tasks()" << strNow() << "\n";
+//            }
             if (!m_tasks.empty()) {
+                std::vector<std::coroutine_handle<>> tasks{};
+                {
+                    std::scoped_lock {m_tasks_mutex};
+                    tasks.swap(m_tasks);
+                }
                 if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
-                    for (auto& handle : m_tasks) {
+                    for (auto& handle : tasks) {
                         handle.resume();
                     }
                 } else {
-                    // m_thread_pool->resume(m_tasks);
-                    for (auto& handle : m_tasks) {
+                    // m_thread_pool->resume(tasks);
+                    for (auto& handle : tasks) {
                         m_thread_pool->resume(handle);
                     }
                 }
-                m_tasks.clear();
+
+                //m_tasks.clear();
             }
+            std::cout << "开始下一次epoll_wait\n";
         }
     }
 
@@ -202,6 +261,51 @@ public:
 
         IoScheduler& m_scheduler;
     };
+
+    bool spawn(Task<void>&& task) {
+        std::cout << "spawn了\n";
+        m_size.fetch_add(1, std::memory_order::release);
+        std::cout << "计数器+1\n";
+        auto owned_task = make_task_self_deleting(std::move(task));
+        owned_task.promise().executor_size(m_size);
+        std::cout << "即将恢复spawn(task)\n";
+        return resume(owned_task.handle());
+    }
+
+
+    bool resume(std::coroutine_handle<> handle)  {
+        std::cout << "进入resume\n";
+        if (handle == nullptr || handle.done()) {
+            std::cout << "handle==null\n";
+            return false;
+        }
+
+        if (m_shutdown.load(std::memory_order::acquire)) {
+            std::cout << "m_shutdown==true\n";
+            return false;
+        }
+
+        if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
+            m_size.fetch_add(1, std::memory_order::release);
+            {
+                std::scoped_lock lk{m_tasks_mutex};
+                m_tasks.emplace_back(handle);
+                std::cout << "__m_tasks.emplace_back(handle);\n";
+                std::cout << "m_tasks.size(): " << m_tasks.size() << "\n";
+            }
+
+            bool expected{false};
+            if (m_schedule_fd_triggered.compare_exchange_strong(
+                    expected, true, std::memory_order::release, std::memory_order::relaxed)) {
+                eventfd_t value{1};
+                eventfd_write(m_schedule_fd, value);
+            }
+            std::cout << "促发了调度任务" << strNow() << "\n";
+            return true;
+        } else {
+            return m_thread_pool->resume(handle);
+        }
+    }
 
     ScheduleAwaiter schedule () { return ScheduleAwaiter{*this}; }
     Task<> schedule_after(std::chrono::milliseconds amount) {
@@ -312,11 +416,13 @@ public:
     }
 
     void on_schedule() {
+        std::cout << "__进入了on_schedule\n";
+        std::cout << "__进入了on_schedule m_tasks.size(): " << m_tasks.size() << "\n";
         std::vector<std::coroutine_handle<>> tasks{};
         {
             std::scoped_lock lk{m_tasks_mutex};
             tasks.swap(m_tasks);
-
+            std::cout << "__进入了on_schedule tasks.size(): " << tasks.size() << "\n";
             eventfd_t value{0};
             // 清空 m_schedule_fd 的值
             eventfd_read(m_schedule_fd, &value);
@@ -325,13 +431,15 @@ public:
             m_schedule_fd_triggered.exchange(false, std::memory_order::release);
         }
 
-        for (auto& task : tasks) {
+        for (auto &task: tasks) {
+            std::cout << "__on_schedule恢复任务\n";
             task.resume();
         }
         m_size.fetch_sub(tasks.size(), std::memory_order::release);
+
     }
 
-    std::size_t size() noexcept {
+    std::size_t size() const noexcept {
         if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline)
         {
             return m_size.load(std::memory_order::acquire);
