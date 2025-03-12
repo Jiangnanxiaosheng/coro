@@ -64,13 +64,15 @@ namespace coro::detail {
         }
 
         template<typename ValueType>
-        requires requires {
-            requires std::is_reference_v<T> && std::is_constructible_v<T, ValueType &&>;
-        } || requires {
-            requires (not std::is_reference_v<T>) && std::is_constructible_v<stored_type, ValueType &&>;
-        }
-        void return_value(ValueType value) {
-            if constexpr (std::is_move_constructible_v<stored_type>) {
+//        requires requires {
+//            requires std::is_reference_v<T> && std::is_constructible_v<T, ValueType &&>;
+//        } || requires {
+//            requires (not std::is_reference_v<T>) && std::is_constructible_v<stored_type, ValueType &&>;
+//        }
+        requires(std::is_reference_v<T> and std::is_constructible_v<T, ValueType&&>) or
+                (not std::is_reference_v<T> and std::is_constructible_v<stored_type, ValueType&&>)
+        void return_value(ValueType&& value) {
+            if constexpr (std::is_reference_v<T>) {
                 T ref = static_cast<ValueType &&>(value);
                 m_storage.template emplace<stored_type>(std::addressof(ref));
 
@@ -121,7 +123,7 @@ namespace coro::detail {
             if (std::holds_alternative<stored_type>(m_storage)) {
                 if constexpr (std::is_reference_v<T>) {
                     return static_cast<T>(*std::get<stored_type>(m_storage));
-                } else if (std::is_move_constructible_v<T>) {
+                } else if constexpr (std::is_move_constructible_v<T>) {
                     return static_cast<T &&>(std::get<stored_type>(m_storage));
                 } else {
                     return static_cast<const T &&>(std::get<stored_type>(m_storage));
