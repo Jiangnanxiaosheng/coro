@@ -38,6 +38,7 @@ int main() {
                     case RecvStatus::WouldBlock:
                         break;
                     case RecvStatus::Closed:
+                        std::cout << "断开连接\n";
                     default:
                         co_return;
                 }
@@ -54,6 +55,7 @@ int main() {
                 {
                     auto client = server.accept();
                     if (client.socket().is_valid()) {
+                        std::cout << "连接成功\n";
                         scheduler->spawn(connection_task(std::move(client)));
                     }
                 }
