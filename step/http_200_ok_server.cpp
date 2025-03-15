@@ -31,20 +31,22 @@ Connection: keep-alive
 
 )";
             std::string buf(1024, '\0');
-            std::cout << "处理中...\n";
+            //std::cout << "处理中...\n";
             while (true) {
                 co_await client.poll(PollOp::Read);
-                std::cout<< "等到可读事件\n";
+                //std::cout<< "等到可读事件\n";
                 auto [rstatus, rspan] = client.recv(buf);
-                std::cout << "读到以下内容: \n";
-                std::cout.write(rspan.data(), rspan.size());
-                std::cout << "读完了\n";
+                //std::cout << "读到以下内容: \n";
+                //std::cout.write(rspan.data(), rspan.size());
+
+
+                //std::cout << "读完了\n";
                 switch (rstatus) {
                     case RecvStatus::Ok:
                         // Make sure the client socket can be written to.
                         co_await client.poll(PollOp::Write);
                         client.send(std::span<const char>{response});
-                        std::cout << "send: " << response << "\n";
+                        //std::cout << "send: " << response << "\n";
                         break;
                     case RecvStatus::WouldBlock:
                         break;
@@ -57,10 +59,12 @@ Connection: keep-alive
         };
 
         co_await scheduler->schedule();
-
+        std::cout << "完成了co_await scheduler->schedule();任务\n";
         Server server {scheduler};
         while (true) {
+            //std::cout << "co_await server.poll()\n";
             auto pstatus =  co_await server.poll();
+            //std::cout << "完成了 co_await server.poll()\n";
             switch (pstatus) {
                 case PollStatus::Event:
                 {
@@ -90,7 +94,6 @@ Connection: keep-alive
 //
 //
 //    sync_wait(when_all(std::move(workers)));
-
     auto scheduler= IoScheduler::make_shared(IoScheduler::Options{.execution_strategy = iosched_exec_pool});
     sync_wait(http_200_ok_server(scheduler));
 }
