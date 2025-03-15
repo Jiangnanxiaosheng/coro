@@ -1,5 +1,3 @@
-#include <fmt/core.h>
-
 #include <coro/coro.hpp>
 #include <iostream>
 #include <memory>
@@ -7,18 +5,20 @@
 using namespace coro;
 
 Task<> voidTask() {
-    fmt::println("这是一个没有返回值的Task");
+    std::cout << "这是一个没有返回值的Task\n";
     co_return;
 }
+
 Task<int> world() {
-    fmt::println("world");
+    std::cout << "world\n";
     co_await voidTask();
-    fmt::println("等到voidTask返回");
+    std::cout << "等到voidTask返回\n";
     co_return 41;
 }
+
 Task<double> hello() {
     int i = co_await world();
-    fmt::println("hello得到world结果为 {}", i);
+    std::cout << "hello得到world结果为: " << i << "\n";
     co_return i + 1.99;
 }
 
@@ -34,36 +34,36 @@ private:
 };
 
 int main() {
-    fmt::println("开始构建hello");
+    std::cout << "开始构建hello\n";
     auto t = hello();
-    fmt::println("构建hello完成");
+    std::cout << "构建hello完成\n";
 
     while (!t.done()) {
         t.resume();
         auto& result = t.promise().result();
-        fmt::println("main得到hello的结果为: {}", result);
+        std::cout << "main得到hello的结果为: " <<  result << "\n";
     }
 
-    fmt::println("------------------------------------");
+    std::cout << "------------------------------------\n";
     int value{5};
     auto task_inline = [](int& x) -> Task<int&> {
         x *= 2;
         co_return x;
     }(value);
 
-    fmt::println("value before run task_inline: {}", value);
+    std::cout << "value before run task_inline: " << value << "\n";
 
     if (!task_inline.done()) {
         task_inline.resume();
     }
 
-    fmt::println("value after run task_inline: {}", value);
+    std::cout << "value after run task_inline: " << value << "\n";
 
     auto& result = task_inline.promise().result();
     std::cout << std::addressof(value) << '\n';
     std::cout << std::addressof(result) << '\n';
 
-    fmt::println("------------------------------------");
+    std::cout << "------------------------------------\n";
     int val = 5;
 
     auto task = [](int* x) -> Task<int*> {
@@ -71,19 +71,22 @@ int main() {
         co_return x;
     }(&val);
 
-    fmt::println("rval: {}", val);
+    std::cout << "rval: " << val << "\n";
     task.resume();
 
     auto rval = task.promise().result();
 
-    fmt::println("val: {}", val);
-    fmt::println("rval: {}", *rval);
+    std::cout << "val: " << val << "\n";
+    std::cout << "rval: " <<  *rval << "\n";
 
     val -= 100;
-    fmt::println("val: {}", val);
-    fmt::println("rval: {}", *rval);
 
-    fmt::println("------------------------------------");
+    std::cout << "after val-=100\n";
+
+    std::cout << "val: " << val << "\n";
+    std::cout << "rval: " <<  *rval << "\n";
+
+    std::cout << "------------------------------------\n";
     int i = 42;
 
     auto task2 = [&i]() -> Task<int&&> { co_return std::move(i); }();
@@ -92,9 +95,9 @@ int main() {
 
     auto iret = task2.promise().result();
 
-    fmt::println("iret: {}", iret);
+    std::cout << "iret: " <<  iret << "\n";
 
-    fmt::println("------------------------------------");
+    std::cout << "------------------------------------\n";
     auto f = []() -> Task<double> {
         Fraction fraction(10, 3);
 
