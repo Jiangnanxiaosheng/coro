@@ -77,6 +77,9 @@ public:
         return output;
     }
 
+    bool operator==(const IpAddress& other) const = default;
+    //auto operator<=>(const IpAddress& other) const = default;
+
 private:
     std::array<uint8_t, ipv6_len> m_data{};
     Domain m_domain {Domain::IpV4};
@@ -85,9 +88,15 @@ private:
 int main() {
     auto ip_addr1 = IpAddress::from_string("127.0.0.1");
     auto ip_addr2 = IpAddress(std::array<uint8_t, 4>{196, 168, 0, 1});
+    uint8_t arr[] = {127,0,0,1};
+    auto ip_addr3 = IpAddress(arr);
+
+
 
     std::cout << ip_addr1.to_string() << "\n";
     std::cout << ip_addr2.to_string() << "\n";
+    ip_addr1 == ip_addr3;
+    std::cout << std::boolalpha <<  (ip_addr1 == ip_addr3);
 
     return 0;
 }
