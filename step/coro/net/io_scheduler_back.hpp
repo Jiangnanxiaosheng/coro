@@ -138,7 +138,9 @@ public:
 
     void run() {
         while (!m_shutdown.load(std::memory_order_acquire) || size() > 0) {
+            std::cout << "__epoll_wait...\n";
             auto event_count = epoll_wait(m_epoll_fd, m_events.data(), m_max_events, -1);
+            std::cout << "__epoll_wait 返回\n";
             if (event_count > 0) {
                 for (int i = 0; i < event_count; ++i) {
                     epoll_event& event = m_events[i];
@@ -147,6 +149,7 @@ public:
                     if (handle_ptr == m_timer_ptr) {
                         on_timeout();
                     } else if (handle_ptr == m_schedule_ptr) {
+                        std::cout << "__schedule 任务\n";
                         on_schedule();
                     } else if (handle_ptr == m_shutdown_ptr) [[unlikely]] {
                         eventfd_t val{0};
@@ -154,6 +157,7 @@ public:
 
                         // 处理io事件
                     } else {
+                        std::cout << "处理普通任务\n";
                         auto* pi = static_cast<PollInfo*>(handle_ptr);
                         if (!pi->m_processed) {
                             std::atomic_thread_fence(std::memory_order::acquire);
@@ -178,10 +182,12 @@ public:
 
                             m_tasks.emplace_back(pi->m_awaiting_handle);
                         }
+                        std::cout << "普通任务处理完\n";
                     }
                 }
             }
-
+            std::cout << "继续逻辑\n";
+            std::cout << "m_tasks :" << m_tasks.size() << '\n';
 //            if (!m_tasks.empty()) {
 //                if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
 //                    for (auto& handle : m_tasks) {
@@ -216,6 +222,7 @@ public:
 
                 //m_tasks.clear();
             }
+            std::cout << "开始下一次epoll_wait\n";
         }
     }
 
@@ -256,25 +263,25 @@ public:
     };
 
     bool spawn(Task<void>&& task) {
-
+        std::cout << "spawn了\n";
         m_size.fetch_add(1, std::memory_order::release);
-
+        std::cout << "计数器+1\n";
         auto owned_task = make_task_self_deleting(std::move(task));
         owned_task.promise().executor_size(m_size);
-
+        std::cout << "即将恢复spawn(task)\n";
         return resume(owned_task.handle());
     }
 
 
     bool resume(std::coroutine_handle<> handle)  {
-
+        std::cout << "进入resume\n";
         if (handle == nullptr || handle.done()) {
-
+            std::cout << "handle==null\n";
             return false;
         }
 
         if (m_shutdown.load(std::memory_order::acquire)) {
-
+            std::cout << "m_shutdown==true\n";
             return false;
         }
 
@@ -283,7 +290,8 @@ public:
             {
                 std::scoped_lock lk{m_tasks_mutex};
                 m_tasks.emplace_back(handle);
-
+                std::cout << "__m_tasks.emplace_back(handle);\n";
+                std::cout << "m_tasks.size(): " << m_tasks.size() << "\n";
             }
 
             bool expected{false};
@@ -292,7 +300,7 @@ public:
                 eventfd_t value{1};
                 eventfd_write(m_schedule_fd, value);
             }
-
+            std::cout << "促发了调度任务" << strNow() << "\n";
             return true;
         } else {
             return m_thread_pool->resume(handle);
@@ -408,12 +416,13 @@ public:
     }
 
     void on_schedule() {
-
+        std::cout << "__进入了on_schedule\n";
+        std::cout << "__进入了on_schedule m_tasks.size(): " << m_tasks.size() << "\n";
         std::vector<std::coroutine_handle<>> tasks{};
         {
             std::scoped_lock lk{m_tasks_mutex};
             tasks.swap(m_tasks);
-
+            std::cout << "__进入了on_schedule tasks.size(): " << tasks.size() << "\n";
             eventfd_t value{0};
             // 清空 m_schedule_fd 的值
             eventfd_read(m_schedule_fd, &value);
@@ -423,7 +432,7 @@ public:
         }
 
         for (auto &task: tasks) {
-
+            std::cout << "__on_schedule恢复任务\n";
             task.resume();
         }
         m_size.fetch_sub(tasks.size(), std::memory_order::release);

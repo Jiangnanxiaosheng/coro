@@ -29,6 +29,11 @@ int main() {
             while (true) {
                 co_await client.poll(PollOp::Read);
                 auto [rstatus, rspan] = client.recv(buf);
+                std::cout << "服务端接收到: \n";
+                for (auto & c : rspan) {
+                    std::cout << c;
+                }
+                std::cout << '\n';
                 switch (rstatus) {
                     case RecvStatus::Ok:
                         // Make sure the client socket can be written to.
