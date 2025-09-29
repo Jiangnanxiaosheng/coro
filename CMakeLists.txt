@@ -6,8 +6,8 @@ include(CMakeDependentOption)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(BUILD_TESTS "Build the tests, Default=ON." ON)
-option(BUILD_EXAMPLES "Build the examples, Default=ON." ON)
+option(BUILD_TESTS "Build the tests, Default=ON." OFF)
+option(BUILD_EXAMPLES "Build the examples, Default=ON." OFF)
 
 cmake_dependent_option(NETWORKING "Include networking features, Default=ON." ON "NOT EMSCRIPTEN; NOT MSVC" OFF)
 

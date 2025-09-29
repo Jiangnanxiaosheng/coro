@@ -14,6 +14,10 @@ add_executable(test_memory benchmark/test_memory.cpp)
 target_include_directories(test_memory PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_memory PRIVATE coro)
 
+add_executable(benchmark benchmark/benchmark.cpp)
+target_include_directories(benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(benchmark PRIVATE coro)
+
 
 add_executable(${PROJECT_NAME} main.cpp ${TEST_SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
