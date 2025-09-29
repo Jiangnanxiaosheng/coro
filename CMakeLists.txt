@@ -39,12 +39,19 @@ if (NETWORKING)
 endif()
 
 if(BUILD_TESTS)
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/CMakeLists.txt)
-        add_subdirectory(third_party/googletest)
-    else()
-        message(WARNING "GTest source not found in third_party/googletest, tests will be disabled")
-        set(BUILD_TESTS OFF)
-    endif()
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG release-1.12.1
+    )
+    
+    # 设置 GTest 选项
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    
+    FetchContent_MakeAvailable(googletest)
 endif()
 
 if (BUILD_TESTS)
