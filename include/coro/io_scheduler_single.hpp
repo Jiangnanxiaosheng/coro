@@ -1,30 +1,29 @@
 #ifndef CORO_IO_SCHEDULER_HPP
 #define CORO_IO_SCHEDULER_HPP
 
-#include <optional>
-#include <coroutine>
 #include <atomic>
 #include <chrono>
-#include <memory>
-#include <vector>
-#include <thread>
+#include <coroutine>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <optional>
+#include <thread>
+#include <vector>
 
-
-#ifdef  NETWORKING
+#ifdef NETWORKING
 #include "coro/net/socket.hpp"
 #endif
 
-#include <sys/timerfd.h>
 #include <sys/eventfd.h>
-
-#include "coro/detail/poll_info.hpp"
-#include "coro/task.hpp"
-#include "coro/poll.hpp"
-#include "coro/thread_pool.hpp"
+#include <sys/timerfd.h>
 
 #include <iostream>
+
+#include "coro/detail/poll_info.hpp"
+#include "coro/poll.hpp"
+#include "coro/task.hpp"
+#include "coro/thread_pool.hpp"
 
 using namespace std::chrono_literals;
 
@@ -40,22 +39,28 @@ namespace not_used::coro {
         using clock = std::chrono::steady_clock;
 
         enum class ExecutionStrategy {
-            On_ThreadPool, On_ThreadInline,
+            On_ThreadPool,
+            On_ThreadInline,
         };
         struct Options {
-            ExecutionStrategy execution_strategy {ExecutionStrategy::On_ThreadPool};
-            std::size_t threads_count {std::thread::hardware_concurrency()};
+            ExecutionStrategy execution_strategy{ExecutionStrategy::On_ThreadPool};
+            std::size_t threads_count{std::thread::hardware_concurrency()};
         };
 
     private:
-        IoScheduler(Options opts) : m_opts(opts), m_epoll_fd(epoll_create1(EPOLL_CLOEXEC)),
-                                    m_shutdown_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)),
-                                    m_timer_fd(timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)),
-                                    m_schedule_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {}
+        IoScheduler(Options opts)
+            : m_opts(opts),
+              m_epoll_fd(epoll_create1(EPOLL_CLOEXEC)),
+              m_shutdown_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)),
+              m_timer_fd(timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)),
+              m_schedule_fd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {}
 
     public:
-        static std::shared_ptr<IoScheduler> make_shared(Options opts= Options{.execution_strategy = ExecutionStrategy::On_ThreadPool, .threads_count = 1}) {
-            std::shared_ptr<IoScheduler> s = std::shared_ptr<IoScheduler>(new IoScheduler(std::move(opts)));
+        static std::shared_ptr<IoScheduler> make_shared(
+            Options opts = Options{.execution_strategy = ExecutionStrategy::On_ThreadPool,
+                                   .threads_count = 1}) {
+            std::shared_ptr<IoScheduler> s =
+                std::shared_ptr<IoScheduler>(new IoScheduler(std::move(opts)));
             if (opts.execution_strategy == ExecutionStrategy::On_ThreadPool) {
                 s->m_thread_pool = std::make_unique<ThreadPool>(s->m_opts.threads_count);
             }
@@ -117,9 +122,9 @@ namespace not_used::coro {
 
         void run() {
             while (!m_shutdown.load(std::memory_order_acquire) || size() > 0) {
-                //std::cout << "__epoll_wait...\n";
+                // std::cout << "__epoll_wait...\n";
                 auto event_count = epoll_wait(m_epoll_fd, m_events.data(), m_max_events, -1);
-                //std::cout << "__epoll_wait 返回\n";
+                // std::cout << "__epoll_wait 返回\n";
                 if (event_count > 0) {
                     for (int i = 0; i < event_count; ++i) {
                         epoll_event& event = m_events[i];
@@ -128,7 +133,7 @@ namespace not_used::coro {
                         if (handle_ptr == m_timer_ptr) {
                             on_timeout();
                         } else if (handle_ptr == m_schedule_ptr) {
-                            //std::cout << "__schedule 任务\n";
+                            // std::cout << "__schedule 任务\n";
                             on_schedule();
                         } else if (handle_ptr == m_shutdown_ptr) [[unlikely]] {
                             eventfd_t val{0};
@@ -136,7 +141,7 @@ namespace not_used::coro {
 
                             // 处理io事件
                         } else {
-                            //std::cout << "处理普通任务\n";
+                            // std::cout << "处理普通任务\n";
                             auto* pi = static_cast<detail::PollInfo*>(handle_ptr);
                             if (!pi->m_processed) {
                                 std::atomic_thread_fence(std::memory_order::acquire);
@@ -161,27 +166,28 @@ namespace not_used::coro {
 
                                 m_tasks.emplace_back(pi->m_awaiting_handle);
                             }
-                            //std::cout << "普通任务处理完\n";
+                            // std::cout << "普通任务处理完\n";
                         }
                     }
                 }
-                //std::cout << "继续逻辑\n";
-                //std::cout << "m_tasks :" << m_tasks.size() << '\n';
-//            if (!m_tasks.empty()) {
-//                if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
-//                    for (auto& handle : m_tasks) {
-//                        handle.resume();
-//                    }
-//                } else {
-//                    // m_thread_pool->resume(m_tasks);
-//                    for (auto& handle : m_tasks) {
-//                        m_thread_pool->resume(handle);
-//                    }
-//                }
-//
-//                m_tasks.clear();
-//                std::cout << "清空了m_tasks()" << strNow() << "\n";
-//            }
+                // std::cout << "继续逻辑\n";
+                // std::cout << "m_tasks :" << m_tasks.size() << '\n';
+                //            if (!m_tasks.empty()) {
+                //                if (m_opts.execution_strategy ==
+                //                ExecutionStrategy::On_ThreadInline) {
+                //                    for (auto& handle : m_tasks) {
+                //                        handle.resume();
+                //                    }
+                //                } else {
+                //                    // m_thread_pool->resume(m_tasks);
+                //                    for (auto& handle : m_tasks) {
+                //                        m_thread_pool->resume(handle);
+                //                    }
+                //                }
+                //
+                //                m_tasks.clear();
+                //                std::cout << "清空了m_tasks()" << strNow() << "\n";
+                //            }
                 if (!m_tasks.empty()) {
                     std::vector<std::coroutine_handle<>> tasks{};
                     {
@@ -199,9 +205,9 @@ namespace not_used::coro {
                         }
                     }
 
-                    //m_tasks.clear();
+                    // m_tasks.clear();
                 }
-                //std::cout << "开始下一次epoll_wait\n";
+                // std::cout << "开始下一次epoll_wait\n";
             }
         }
 
@@ -213,7 +219,7 @@ namespace not_used::coro {
             } else if (events & EPOLLRDHUP || events & EPOLLHUP) {
                 return PollStatus::Closed;
             }
-            throw std::runtime_error {"event_to_poll_status: unknown PollStatus"};
+            throw std::runtime_error{"event_to_poll_status: unknown PollStatus"};
         }
 
         struct ScheduleAwaiter {
@@ -222,12 +228,13 @@ namespace not_used::coro {
                 if (m_scheduler.m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
                     m_scheduler.m_size.fetch_add(1, std::memory_order_release);
                     {
-                        std::scoped_lock<std::mutex> lk {m_scheduler.m_tasks_mutex};
+                        std::scoped_lock<std::mutex> lk{m_scheduler.m_tasks_mutex};
                         m_scheduler.m_tasks.emplace_back(awaiting_handle);
                     }
 
                     bool expected{false};
-                    if (m_scheduler.m_schedule_fd_triggered.compare_exchange_strong(expected, true, std::memory_order_release, std::memory_order_relaxed)) {
+                    if (m_scheduler.m_schedule_fd_triggered.compare_exchange_strong(
+                            expected, true, std::memory_order_release, std::memory_order_relaxed)) {
                         eventfd_t value{1};
                         // 触发调度事件
                         eventfd_write(m_scheduler.m_schedule_fd, value);
@@ -242,25 +249,24 @@ namespace not_used::coro {
         };
 
         bool spawn(Task<void>&& task) {
-            //std::cout << "spawn了\n";
+            // std::cout << "spawn了\n";
             m_size.fetch_add(1, std::memory_order::release);
-            //std::cout << "计数器+1\n";
+            // std::cout << "计数器+1\n";
             auto owned_task = coro::detail::make_self_deleting_task(std::move(task));
             owned_task.promise().executor_size(m_size);
-            //std::cout << "即将恢复spawn(task)\n";
+            // std::cout << "即将恢复spawn(task)\n";
             return resume(owned_task.handle());
         }
 
-
-        bool resume(std::coroutine_handle<> handle)  {
-            //std::cout << "进入resume\n";
+        bool resume(std::coroutine_handle<> handle) {
+            // std::cout << "进入resume\n";
             if (handle == nullptr || handle.done()) {
-                //std::cout << "handle==null\n";
+                // std::cout << "handle==null\n";
                 return false;
             }
 
             if (m_shutdown.load(std::memory_order::acquire)) {
-                //std::cout << "m_shutdown==true\n";
+                // std::cout << "m_shutdown==true\n";
                 return false;
             }
 
@@ -269,8 +275,8 @@ namespace not_used::coro {
                 {
                     std::scoped_lock<std::mutex> lk{m_tasks_mutex};
                     m_tasks.emplace_back(handle);
-                    //std::cout << "__m_tasks.emplace_back(handle);\n";
-                    //std::cout << "m_tasks.size(): " << m_tasks.size() << "\n";
+                    // std::cout << "__m_tasks.emplace_back(handle);\n";
+                    // std::cout << "m_tasks.size(): " << m_tasks.size() << "\n";
                 }
 
                 bool expected{false};
@@ -279,14 +285,14 @@ namespace not_used::coro {
                     eventfd_t value{1};
                     eventfd_write(m_schedule_fd, value);
                 }
-                //std::cout << "促发了调度任务" << strNow() << "\n";
+                // std::cout << "促发了调度任务" << strNow() << "\n";
                 return true;
             } else {
                 return m_thread_pool->resume(handle);
             }
         }
 
-        ScheduleAwaiter schedule () { return ScheduleAwaiter{*this}; }
+        ScheduleAwaiter schedule() { return ScheduleAwaiter{*this}; }
         Task<> schedule_after(std::chrono::milliseconds amount) {
             if (amount <= 0ms) {
                 co_await schedule();
@@ -322,7 +328,6 @@ namespace not_used::coro {
         Task<> yield_until(std::chrono::steady_clock::time_point time) { return schedule_at(time); }
 
         Task<PollStatus> poll(int fd, PollOp op, std::chrono::milliseconds timeout) {
-
             m_size.fetch_add(1, std::memory_order_release);
 
             bool timeout_requested = (timeout > 0ms);
@@ -351,16 +356,17 @@ namespace not_used::coro {
             co_return result;
         }
 
-        Task<PollStatus> poll(Socket& sock, PollOp op, std::chrono::milliseconds  timeout) { return poll(sock.fd(), op, timeout); }
-
+        Task<PollStatus> poll(Socket& sock, PollOp op, std::chrono::milliseconds timeout) {
+            return poll(sock.fd(), op, timeout);
+        }
 
         void on_timeout() {
-            std::vector<detail::PollInfo*> poll_infos {};
+            std::vector<detail::PollInfo*> poll_infos{};
             auto now = clock::now();
             {
-                std::scoped_lock<std::mutex> lk {m_timed_events_mutex};
+                std::scoped_lock<std::mutex> lk{m_timed_events_mutex};
                 while (!m_timed_events.empty()) {
-                    auto first    = m_timed_events.begin();
+                    auto first = m_timed_events.begin();
                     auto [tp, pi] = *first;
 
                     // 把超时的事件都加入 poll_infos
@@ -399,7 +405,7 @@ namespace not_used::coro {
 
         void on_schedule() {
             std::cout << "__进入了on_schedule\n";
-            //std::cout << "__进入了on_schedule m_tasks.size(): " << m_tasks.size() << "\n";
+            // std::cout << "__进入了on_schedule m_tasks.size(): " << m_tasks.size() << "\n";
             std::vector<std::coroutine_handle<>> tasks{};
             {
                 std::scoped_lock<std::mutex> lk{m_tasks_mutex};
@@ -413,7 +419,7 @@ namespace not_used::coro {
                 m_schedule_fd_triggered.exchange(false, std::memory_order::release);
             }
 
-            for (auto &task: tasks) {
+            for (auto& task : tasks) {
                 std::cout << "__on_schedule恢复任务\n";
                 task.resume();
             }
@@ -422,8 +428,7 @@ namespace not_used::coro {
         }
 
         std::size_t size() const noexcept {
-            if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline)
-            {
+            if (m_opts.execution_strategy == ExecutionStrategy::On_ThreadInline) {
                 return m_size.load(std::memory_order::acquire);
             } else {
                 return m_size.load(std::memory_order::acquire) + m_thread_pool->size();
@@ -433,18 +438,18 @@ namespace not_used::coro {
     private:
         Options m_opts;
 
-        int m_epoll_fd {-1};
-        int m_shutdown_fd {-1};
-        int m_timer_fd {-1};
+        int m_epoll_fd{-1};
+        int m_shutdown_fd{-1};
+        int m_timer_fd{-1};
 
         std::thread m_io_thread;
         std::unique_ptr<ThreadPool> m_thread_pool{nullptr};
 
-        std::atomic<bool> m_shutdown {false};
+        std::atomic<bool> m_shutdown{false};
 
         // 如果任务是在m_io_thread上运行的，则由原子变量判断是否已经 eventfd_write(m_schedule_fd)
-        int m_schedule_fd {-1};
-        std::atomic<bool> m_schedule_fd_triggered {false};
+        int m_schedule_fd{-1};
+        std::atomic<bool> m_schedule_fd_triggered{false};
 
         // 等待恢复的协程任务
         std::vector<std::coroutine_handle<>> m_tasks;
@@ -457,18 +462,18 @@ namespace not_used::coro {
         timed_events m_timed_events;
         std::mutex m_timed_events_mutex;
 
-        static const constexpr int m_shutdown_object {};
+        static const constexpr int m_shutdown_object{};
         static const constexpr void* m_shutdown_ptr = &m_shutdown_object;
 
-        static const constexpr int m_timer_object {};
+        static const constexpr int m_timer_object{};
         static const constexpr void* m_timer_ptr = &m_timer_object;
 
-        static const constexpr int m_schedule_object {};
+        static const constexpr int m_schedule_object{};
         static const constexpr void* m_schedule_ptr = &m_schedule_object;
 
         static constexpr int m_max_events = 128;
         // 存放epoll_wait() 返回事件的 array
-        std::array<struct epoll_event, m_max_events> m_events {};
+        std::array<struct epoll_event, m_max_events> m_events{};
 
         static constexpr std::chrono::milliseconds m_default_timeout{1000};
 
@@ -486,7 +491,7 @@ namespace not_used::coro {
 
         void remove_timer_token(timed_events::iterator pos) {
             {
-                std::scoped_lock<std::mutex> lk {m_timed_events_mutex};
+                std::scoped_lock<std::mutex> lk{m_timed_events_mutex};
                 // 检查是否是最早的任务
                 auto is_first = (m_timed_events.begin() == pos);
 
@@ -523,7 +528,8 @@ namespace not_used::coro {
                 ts.it_value.tv_nsec = nanoseconds.count();
                 // 更新 timerfd 的定时器时间
                 if (timerfd_settime(m_timer_fd, 0, &ts, nullptr) == -1) {
-                    std::cerr << "failed to set timerfd errorno=[" << std::string{strerror(errno)} << "].";
+                    std::cerr << "failed to set timerfd errorno=[" << std::string{strerror(errno)}
+                              << "].";
                 }
             } else {
                 // 如果没有定时任务，则禁用 timerfd
@@ -531,16 +537,18 @@ namespace not_used::coro {
                 ts.it_value.tv_sec = 0;
                 ts.it_value.tv_nsec = 0;
                 if (timerfd_settime(m_timer_fd, 0, &ts, nullptr) == -1) {
-                    std::cerr << "failed to set timerfd errorno=[" << std::string{strerror(errno)} << "].";
+                    std::cerr << "failed to set timerfd errorno=[" << std::string{strerror(errno)}
+                              << "].";
                 }
             }
         }
     };
 
-    inline constexpr IoScheduler::ExecutionStrategy io_exec_thread_inline = IoScheduler::ExecutionStrategy::On_ThreadInline;
-    inline constexpr IoScheduler::ExecutionStrategy io_exec_thread_pool = IoScheduler::ExecutionStrategy::On_ThreadPool;
+    inline constexpr IoScheduler::ExecutionStrategy io_exec_thread_inline =
+        IoScheduler::ExecutionStrategy::On_ThreadInline;
+    inline constexpr IoScheduler::ExecutionStrategy io_exec_thread_pool =
+        IoScheduler::ExecutionStrategy::On_ThreadPool;
 
-} // namespace coro
+}  // namespace coro
 
-
-#endif //CORO_IO_SCHEDULER_HPP
+#endif  // CORO_IO_SCHEDULER_HPP
